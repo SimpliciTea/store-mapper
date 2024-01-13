@@ -1,0 +1,37 @@
+<html>
+  <head>
+    <script>
+      const size = 1000;
+      let arr = new Array();
+      function test1() {
+        arr[200] = "foo";
+      }
+      function test2() {
+        arr[0] = "bar";
+        arr[size * size - 1] = "hi";
+      }
+      function test3() {
+        arr = new Array(size * size);
+      }
+      function log() {
+        console.log(arr);
+      }
+      function iterate() {
+        for (const foo of arr) {
+          console.log(foo);
+        }
+      }
+      function builtinIterate() {
+        arr.forEach((el) => console.log(el));
+      }
+    </script>
+  </head>
+  <body>
+    <button onclick="test1()">test1</button>
+    <button onclick="test2()">test2</button>
+    <button onclick="test3()">test3</button>
+    <button onclick="log()">log</button>
+    <button onclick="iterate()">iterate</button>
+    <button onclick="builtinIterate()">builtinIterate</button>
+  </body>
+</html>
