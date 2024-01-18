@@ -1,7 +1,25 @@
 import { useLayoutEffect, useRef } from "react";
-import { Button, Group, Stack } from "@mantine/core";
+import { Group, Stack } from "@mantine/core";
 import tinycolor from "tinycolor2";
 import { TestBtn } from "./TestBtn";
+
+type TestShape = [number, number, string];
+
+// const testShapes: TestShape[] = [
+//   [10, 10, "indianred"],
+//   [10, 11, "indianred"],
+//   [11, 9, "indianred"],
+//   [11, 10, "indianred"],
+//   [11, 11, "indianred"],
+//   [12, 10, "indianred"],
+//   [12, 11, "indianred"],
+// ];
+
+const testShapes: TestShape[] = [
+  [10, 10, "indianred"],
+  [10, 11, "indianred"],
+  [10, 12, "indianred"],
+];
 
 type XYCoord = {
   x: number;
@@ -14,19 +32,19 @@ type GridCellCoord = {
 };
 
 type GridCell = {
+  id: string;
   row: number;
   col: number;
+  neighbors: CellNeighbors;
   fillStyle: string;
   adjacency: number;
-  paintCount: number;
+  regionId: number;
 };
 
-type CellNeighbors = {
-  north?: GridCell;
-  east?: GridCell;
-  south?: GridCell;
-  west?: GridCell;
-};
+const directions = ["north", "east", "south", "west"] as const;
+type Direction = (typeof directions)[number];
+
+type CellNeighbors = { [key in Direction]: GridCell | undefined };
 
 enum CardinalBit {
   North = 1 << 3,
@@ -34,24 +52,6 @@ enum CardinalBit {
   South = 1 << 1,
   West = 1 << 0,
 }
-
-const cardinalBits = [
-  CardinalBit.North,
-  CardinalBit.East,
-  CardinalBit.South,
-  CardinalBit.West,
-];
-
-let paintCount = 0;
-
-type Rect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  strokeStyle?: React.CSSProperties["color"];
-  fillStyle?: React.CSSProperties["color"];
-};
 
 const colors = {
   red: "indianred",
@@ -91,6 +91,7 @@ class Canvas {
   isPanning = false;
   mouseDown = false;
   fillStyle = colors.red;
+  nextRegionId = 0;
 
   gridSize = DEFAULT_GRID_SIZE;
   gridOffset = DEFAULT_GRID_SIZE / 2;
@@ -122,6 +123,7 @@ class Canvas {
 
     this.registerEventHandlers();
     this.render();
+    this.paintTestShapes();
   }
 
   registerEventHandlers = () => {
@@ -164,11 +166,15 @@ class Canvas {
     return this.currentTransform.a;
   }
 
-  // setPanLimits() {
-  //   const worldPxSize = this.gridSize * this.cellSize;
-  //   const maxPan = worldPxSize / 2;
-  //   const maxPan = worldPxSize / -2;
-  // }
+  paintTestShapes() {
+    testShapes.forEach(([row, col, color]) => {
+      this.fillStyle = color;
+      this.paintCell({
+        row: this.gridOffset + row,
+        col: this.gridOffset + col,
+      });
+    });
+  }
 
   clear() {
     this.context.save();
@@ -186,12 +192,10 @@ class Canvas {
     requestAnimationFrame(() => {
       if (this.shouldRender) {
         this.clear();
-        // this.context.translate(-0.5, -0.5);
         this.renderGrid();
         this.renderCells();
         this.renderCellBorders();
         this.renderHoverCell();
-        // this.context.translate(0.5, 0.5);
         this.shouldRender = false;
       }
       this.render();
@@ -199,7 +203,6 @@ class Canvas {
   }
 
   renderCells() {
-    // this.printCells();
     this.cellData.forEach((row) => {
       row.forEach((cell) => {
         const coord = this.cellCoordToWorldCoord(cell);
@@ -207,11 +210,9 @@ class Canvas {
         this.context.fillRect(coord.x, coord.y, this.cellSize, this.cellSize);
       });
     });
-    // this.context.fill();
   }
 
   renderCellBorders(lineWidth = 2) {
-    // this.context.translate(-0.5, -0.5);
     this.context.lineWidth = lineWidth;
     this.cellData.forEach((row) => {
       row.forEach((cell) => {
@@ -225,13 +226,11 @@ class Canvas {
         const inset = lineWidth / 2;
 
         if (!this.isBitSet(cell.adjacency, CardinalBit.North)) {
-          // console.log(CardinalBit[CardinalBit.North]);
           const from = { ...worldCoord, y: worldCoord.y + inset };
           const to = { ...from, x: from.x + this.cellSize };
           this.renderLine(from, to);
         }
         if (!this.isBitSet(cell.adjacency, CardinalBit.East)) {
-          console.log(CardinalBit[CardinalBit.East]);
           const from = {
             ...worldCoord,
             x: worldCoord.x + this.cellSize - inset,
@@ -240,7 +239,6 @@ class Canvas {
           this.renderLine(from, to);
         }
         if (!this.isBitSet(cell.adjacency, CardinalBit.South)) {
-          // console.log(CardinalBit[CardinalBit.South]);
           const from = {
             ...worldCoord,
             y: worldCoord.y + this.cellSize - inset,
@@ -249,7 +247,6 @@ class Canvas {
           this.renderLine(from, to);
         }
         if (!this.isBitSet(cell.adjacency, CardinalBit.West)) {
-          // console.log(CardinalBit[CardinalBit.West]);
           const from = { ...worldCoord, x: worldCoord.x + inset };
           const to = { ...from, y: from.y + this.cellSize };
           this.renderLine(from, to);
@@ -257,15 +254,26 @@ class Canvas {
       });
     });
     this.context.lineWidth = 1;
-    // this.context.translate(0.5, 0.5);
   }
 
-  printCells() {
-    console.log({ cells: this.cellData.flat() });
+  printCells(props?: Array<keyof GridCell>) {
+    const cells = this.cellData.flat();
+
+    if (props) {
+      const mapped = cells.map((c) => {
+        const ret: Record<string, unknown> = {};
+        for (const prop of props) {
+          ret[prop] = c[prop];
+        }
+        return ret;
+      });
+      console.log(mapped);
+    } else {
+      console.log(cells);
+    }
   }
 
   renderLine(from: XYCoord, to: XYCoord) {
-    // console.log("renderLine!", { from, to });
     this.context.beginPath();
     this.context.moveTo(from.x, from.y);
     this.context.lineTo(to.x, to.y);
@@ -281,7 +289,6 @@ class Canvas {
     const endY = Math.ceil((startY + this.worldHeight) / size) * size + size;
 
     this.context.strokeStyle = "black";
-    // this.context.translate(-0.5, -0.5);
 
     for (let x = startX; x <= endX; x += this.cellSize) {
       this.context.beginPath();
@@ -296,8 +303,6 @@ class Canvas {
       this.context.lineTo(endX, y);
       this.context.stroke();
     }
-
-    // this.context.translate(0.5, 0.5);
   }
 
   renderHoverCell() {
@@ -404,75 +409,219 @@ class Canvas {
     return mask & ~bit;
   }
 
-  updateCell(coord: GridCellCoord, update: Partial<GridCell>) {
-    this.cellData[coord.row][coord.col] = {
-      ...this.cellData[coord.row][coord.col],
-      ...update,
-    };
-  }
-
   isBitSet(mask: number, bit: CardinalBit) {
     return (mask & bit) === bit;
   }
 
-  informAdjacentNeighbors(cell: GridCell, neighbors?: CellNeighbors) {
-    if (!neighbors) neighbors = this.getCellNeighbors(cell);
-    console.log({
-      neighbors,
-      adj: cell.adjacency,
-      isSet: this.isBitSet(cell.adjacency, CardinalBit.North),
-    });
+  setCell(coord: GridCellCoord, cell: GridCell) {
+    this.cellData[coord.row][coord.col] = cell;
+    this.informAdjacentNeighbors(cell);
+  }
 
-    if (neighbors.north) {
+  getCell(coord: GridCellCoord): GridCell | undefined {
+    return this.cellData[coord.row]?.[coord.col];
+  }
+
+  updateCell(coord: GridCellCoord, update: Partial<GridCell>) {
+    const cell = this.getCell(coord);
+    if (!cell) return;
+
+    Object.assign(cell, update);
+    this.informAdjacentNeighbors(cell);
+  }
+
+  informAdjacentNeighbors(cell: GridCell) {
+    const { north, east, south, west } = cell.neighbors;
+
+    if (north) {
       const nextMask =
-        neighbors.north.fillStyle === this.fillStyle
-          ? this.setMaskBit(neighbors.north.adjacency, CardinalBit.South)
-          : this.unsetMaskBit(neighbors.north.adjacency, CardinalBit.South);
-      this.updateCell(neighbors.north, { adjacency: nextMask });
+        north.fillStyle === this.fillStyle
+          ? this.setMaskBit(north.adjacency, CardinalBit.South)
+          : this.unsetMaskBit(north.adjacency, CardinalBit.South);
+      north.adjacency = nextMask;
+      north.neighbors.south = cell;
     }
-    if (neighbors.east) {
+    if (east) {
       const nextMask =
-        neighbors.east.fillStyle === this.fillStyle
-          ? this.setMaskBit(neighbors.east.adjacency, CardinalBit.West)
-          : this.unsetMaskBit(neighbors.east.adjacency, CardinalBit.West);
-      this.updateCell(neighbors.east, { adjacency: nextMask });
+        east.fillStyle === this.fillStyle
+          ? this.setMaskBit(east.adjacency, CardinalBit.West)
+          : this.unsetMaskBit(east.adjacency, CardinalBit.West);
+      east.adjacency = nextMask;
+      east.neighbors.west = cell;
     }
-    if (neighbors.south) {
+    if (south) {
       const nextMask =
-        neighbors.south.fillStyle === this.fillStyle
-          ? this.setMaskBit(neighbors.south.adjacency, CardinalBit.North)
-          : this.unsetMaskBit(neighbors.south.adjacency, CardinalBit.North);
-      this.updateCell(neighbors.south, { adjacency: nextMask });
+        south.fillStyle === this.fillStyle
+          ? this.setMaskBit(south.adjacency, CardinalBit.North)
+          : this.unsetMaskBit(south.adjacency, CardinalBit.North);
+      south.adjacency = nextMask;
+      south.neighbors.north = cell;
     }
-    if (neighbors.west) {
+    if (west) {
       const nextMask =
-        neighbors.west.fillStyle === this.fillStyle
-          ? this.setMaskBit(neighbors.west.adjacency, CardinalBit.East)
-          : this.unsetMaskBit(neighbors.west.adjacency, CardinalBit.East);
-      this.updateCell(neighbors.west, { adjacency: nextMask });
+        west.fillStyle === this.fillStyle
+          ? this.setMaskBit(west.adjacency, CardinalBit.East)
+          : this.unsetMaskBit(west.adjacency, CardinalBit.East);
+      west.adjacency = nextMask;
+      west.neighbors.east = cell;
     }
   }
 
+  getAdjacentLikeRegionIds(neighbors: CellNeighbors) {
+    const adjacentRegions = new Set<number>();
+    Object.values(neighbors).forEach(
+      (n) => n?.fillStyle === this.fillStyle && adjacentRegions.add(n.regionId)
+    );
+
+    return [...adjacentRegions];
+  }
+
+  getPotentiallyCleavedNeighbors(cell: GridCell, regionId: number) {
+    const dirs: Array<keyof CellNeighbors> = [];
+
+    Object.entries(cell.neighbors).forEach(([key, neighbor]) => {
+      if (neighbor?.regionId === regionId) {
+        dirs.push(key as keyof CellNeighbors);
+      }
+    });
+
+    return dirs.length > 1 ? dirs : [];
+  }
+
+  parseCellId(id: string) {
+    return id.split(".");
+  }
+
+  searchRegionForCells(
+    startCell: GridCell | undefined,
+    searchIds: Set<string>
+  ) {
+    const visited = new Set<string>();
+    const foundIds = new Set<string>();
+    if (!startCell) return foundIds;
+
+    const visitCell = (currentCell: GridCell) => {
+      if (visited.has(currentCell.id) || foundIds.size === searchIds.size)
+        return;
+      visited.add(currentCell.id);
+
+      if (currentCell.regionId !== startCell.regionId) return;
+
+      if (searchIds.has(currentCell.id)) {
+        foundIds.add(currentCell.id);
+      }
+
+      for (const neighbor of Object.values(currentCell.neighbors)) {
+        if (!neighbor) continue;
+        visitCell(neighbor);
+      }
+    };
+
+    visitCell(startCell);
+
+    return foundIds;
+  }
+
+  getCellCoord(cell: GridCell) {
+    return { row: cell.row, col: cell.col };
+  }
+
+  floodFill(
+    startCell: GridCell,
+    conditionFn: (cell: GridCell) => boolean,
+    update: (cell: GridCell) => void
+  ) {
+    const visited = new Set<string>();
+
+    // walk all connected cells and update their regionId
+    const visitCell = (currentCell: GridCell) => {
+      if (visited.has(currentCell.id)) return;
+      visited.add(currentCell.id);
+
+      if (conditionFn(currentCell)) {
+        update(currentCell);
+      }
+
+      for (const dir of directions) {
+        const neighbor = currentCell.neighbors[dir];
+        if (!neighbor) continue;
+        visitCell(neighbor);
+      }
+    };
+
+    visitCell(startCell);
+  }
+
+  // TODO: is this walking all cells, and not just region cells?
+  setIdForRegion(startCell: GridCell, prevRegionId?: number) {
+    this.floodFill(
+      startCell,
+      (cell) => cell.fillStyle === startCell.fillStyle,
+      (cell) => this.updateCell(cell, { regionId: startCell.regionId })
+    );
+
+    // if neighbor is potentiall cleaved, update regionIds
+    // pessimistic fill off the cuff seems similar to search then fill perf
+    // if (prevRegionId !== undefined) {
+    //   const dirsToCheck = this.getPotentiallyCleavedNeighbors(
+    //     startCell,
+    //     prevRegionId
+    //   );
+
+    //   if (dirsToCheck.length) {
+    //     for (const dir of dirsToCheck) {
+    //       const neighbor = startCell.neighbors[dir];
+
+    //       if (neighbor?.regionId === prevRegionId) {
+    //         console.log("should fill");
+    //         const nextRegionId = this.nextRegionId++;
+
+    //         this.floodFill(
+    //           neighbor,
+    //           (cell) => cell.regionId === prevRegionId,
+    //           (cell) => this.updateCell(cell, { regionId: nextRegionId })
+    //         );
+    //       }
+    //     }
+    //   }
+    // }
+  }
+
+  shouldPaintCell(cellCoord: GridCellCoord) {
+    return (
+      this.cellData[cellCoord.row]?.[cellCoord.col]?.fillStyle !==
+      this.fillStyle
+    );
+  }
+
   paintCell(cellCoord: GridCellCoord) {
+    if (!this.shouldPaintCell(cellCoord)) return;
+
     if (!this.cellData[cellCoord.row]) {
       this.cellData[cellCoord.row] = [];
     }
 
     const neighbors = this.getCellNeighbors(cellCoord);
-    const adj = this.makeAdjacencyMask(neighbors);
-    console.log({ neighbors, adj });
+    const adjacentLikeRegionIds = this.getAdjacentLikeRegionIds(neighbors);
+
+    const prevRegionId = this.getCell(cellCoord)?.regionId;
+    const regionId = adjacentLikeRegionIds[0] ?? this.nextRegionId++;
+    const mask = this.makeAdjacencyMask(neighbors);
 
     const cell: GridCell = {
+      id: `${cellCoord.row}.${cellCoord.col}`,
       row: cellCoord.row,
       col: cellCoord.col,
+      neighbors,
       fillStyle: this.fillStyle,
-      adjacency: this.makeAdjacencyMask(neighbors),
-      paintCount: paintCount++,
+      adjacency: parseInt(mask.toString(2), 2),
+      regionId,
     };
 
-    // inform neighbors of adjacency
-    this.informAdjacentNeighbors(cell, neighbors);
-    this.updateCell(cellCoord, cell);
+    console.log({ mask, painting: cell });
+
+    this.setCell(cellCoord, cell);
+    this.setIdForRegion(cell, prevRegionId);
 
     this.shouldRender = true;
   }
