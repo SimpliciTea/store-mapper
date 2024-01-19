@@ -87,6 +87,7 @@ class Canvas {
   shouldRender = true;
   mousePos?: XYCoord;
   mouseCellCoord?: GridCellCoord;
+  mouseRegionId?: number;
   cursorMode = CursorMode.Rest;
   isPanning = false;
   mouseDown = false;
@@ -203,20 +204,43 @@ class Canvas {
   }
 
   renderCells() {
+    const renderedRegionIds = new Set<number>();
+
     this.cellData.forEach((row) => {
       row.forEach((cell) => {
-        const coord = this.cellCoordToWorldCoord(cell);
-        this.context.fillStyle = cell.fillStyle;
-        this.context.fillRect(coord.x, coord.y, this.cellSize, this.cellSize);
+        if (renderedRegionIds.has(cell.regionId)) {
+          return;
+        }
+
+        renderedRegionIds.add(cell.regionId);
+        this.context.beginPath();
+
+        this.floodFill(
+          cell,
+          (currentCell) => currentCell.regionId === cell.regionId,
+          (currentCell) => {
+            const coord = this.cellCoordToWorldCoord(currentCell);
+            this.context.rect(coord.x, coord.y, this.cellSize, this.cellSize);
+          }
+        );
+
+        this.context.fillStyle =
+          this.mouseRegionId === cell.regionId
+            ? tinycolor(cell.fillStyle).lighten(2).toHexString()
+            : cell.fillStyle;
+        this.context.fill();
+        this.context.closePath();
       });
     });
   }
 
-  renderCellBorders(lineWidth = 2) {
-    this.context.lineWidth = lineWidth;
+  renderCellBorders(lineWidth = 1) {
     this.cellData.forEach((row) => {
       row.forEach((cell) => {
         if (cell.adjacency === 0b1111) return;
+
+        this.context.lineWidth =
+          cell.regionId === this.mouseRegionId ? lineWidth * 2 : lineWidth;
 
         this.context.strokeStyle = tinycolor(cell.fillStyle)
           .darken()
@@ -427,7 +451,9 @@ class Canvas {
     if (!cell) return;
 
     Object.assign(cell, update);
-    this.informAdjacentNeighbors(cell);
+    if ("fillStyle" in update) {
+      this.informAdjacentNeighbors(cell);
+    }
   }
 
   informAdjacentNeighbors(cell: GridCell) {
@@ -540,12 +566,12 @@ class Canvas {
 
       if (conditionFn(currentCell)) {
         update(currentCell);
-      }
 
-      for (const dir of directions) {
-        const neighbor = currentCell.neighbors[dir];
-        if (!neighbor) continue;
-        visitCell(neighbor);
+        for (const dir of directions) {
+          const neighbor = currentCell.neighbors[dir];
+          if (!neighbor) continue;
+          visitCell(neighbor);
+        }
       }
     };
 
@@ -562,29 +588,28 @@ class Canvas {
 
     // if neighbor is potentiall cleaved, update regionIds
     // pessimistic fill off the cuff seems similar to search then fill perf
-    // if (prevRegionId !== undefined) {
-    //   const dirsToCheck = this.getPotentiallyCleavedNeighbors(
-    //     startCell,
-    //     prevRegionId
-    //   );
+    if (prevRegionId !== undefined) {
+      const dirsToCheck = this.getPotentiallyCleavedNeighbors(
+        startCell,
+        prevRegionId
+      );
 
-    //   if (dirsToCheck.length) {
-    //     for (const dir of dirsToCheck) {
-    //       const neighbor = startCell.neighbors[dir];
+      if (dirsToCheck.length) {
+        for (const dir of dirsToCheck) {
+          const neighbor = startCell.neighbors[dir];
 
-    //       if (neighbor?.regionId === prevRegionId) {
-    //         console.log("should fill");
-    //         const nextRegionId = this.nextRegionId++;
+          if (neighbor?.regionId === prevRegionId) {
+            const nextRegionId = this.nextRegionId++;
 
-    //         this.floodFill(
-    //           neighbor,
-    //           (cell) => cell.regionId === prevRegionId,
-    //           (cell) => this.updateCell(cell, { regionId: nextRegionId })
-    //         );
-    //       }
-    //     }
-    //   }
-    // }
+            this.floodFill(
+              neighbor,
+              (cell) => cell.regionId === prevRegionId,
+              (cell) => this.updateCell(cell, { regionId: nextRegionId })
+            );
+          }
+        }
+      }
+    }
   }
 
   shouldPaintCell(cellCoord: GridCellCoord) {
@@ -618,8 +643,6 @@ class Canvas {
       regionId,
     };
 
-    console.log({ mask, painting: cell });
-
     this.setCell(cellCoord, cell);
     this.setIdForRegion(cell, prevRegionId);
 
@@ -648,9 +671,11 @@ class Canvas {
 
   handlePointerMove = (e: PointerEvent) => {
     const worldCoord = this.viewportToWorld({ x: e.clientX, y: e.clientY });
-    this.mousePos = worldCoord;
-
     const cellCoord = this.worldCoordToCellCoord(worldCoord);
+
+    this.mousePos = worldCoord;
+    this.mouseRegionId = this.getCell(cellCoord)?.regionId;
+
     const isSameCell = this.isSameCell(cellCoord, this.mouseCellCoord);
 
     if (!isSameCell) {
@@ -680,6 +705,7 @@ class Canvas {
   handlePointerLeave = () => {
     this.mousePos = undefined;
     this.mouseCellCoord = undefined;
+    this.mouseRegionId = undefined;
     this.shouldRender = true;
   };
 
